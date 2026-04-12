@@ -1,90 +1,43 @@
-﻿using ClearBank.DeveloperTest.Data;
+using ClearBank.DeveloperTest.Data;
+using ClearBank.DeveloperTest.Services.Validators;
 using ClearBank.DeveloperTest.Types;
-using System.Configuration;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace ClearBank.DeveloperTest.Services
 {
+    /// <summary>
+    /// Orchestrates the payment flow: fetches the debtor account, delegates validation to the
+    /// appropriate scheme validator, and — if valid — deducts the amount and persists the updated account.
+    /// </summary>
     public class PaymentService : IPaymentService
     {
+        private readonly IAccountDataStore _accountDataStore;
+        private readonly IEnumerable<IPaymentValidator> _validators;
+
+        public PaymentService(IAccountDataStore accountDataStore, IEnumerable<IPaymentValidator> validators)
+        {
+            _accountDataStore = accountDataStore;
+            _validators = validators;
+        }
+
         public MakePaymentResult MakePayment(MakePaymentRequest request)
         {
-            var dataStoreType = ConfigurationManager.AppSettings["DataStoreType"];
+            Account account = _accountDataStore.GetAccount(request.DebtorAccountNumber);
+            IPaymentValidator validator = _validators.FirstOrDefault(v => v.PaymentScheme == request.PaymentScheme);
 
-            Account account = null;
-
-            if (dataStoreType == "Backup")
+            var result = new MakePaymentResult
             {
-                var accountDataStore = new BackupAccountDataStore();
-                account = accountDataStore.GetAccount(request.DebtorAccountNumber);
-            }
-            else
-            {
-                var accountDataStore = new AccountDataStore();
-                account = accountDataStore.GetAccount(request.DebtorAccountNumber);
-            }
-
-            var result = new MakePaymentResult();
-
-            result.Success = true;
-            
-            switch (request.PaymentScheme)
-            {
-                case PaymentScheme.Bacs:
-                    if (account == null)
-                    {
-                        result.Success = false;
-                    }
-                    else if (!account.AllowedPaymentSchemes.HasFlag(AllowedPaymentSchemes.Bacs))
-                    {
-                        result.Success = false;
-                    }
-                    break;
-
-                case PaymentScheme.FasterPayments:
-                    if (account == null)
-                    {
-                        result.Success = false;
-                    }
-                    else if (!account.AllowedPaymentSchemes.HasFlag(AllowedPaymentSchemes.FasterPayments))
-                    {
-                        result.Success = false;
-                    }
-                    else if (account.Balance < request.Amount)
-                    {
-                        result.Success = false;
-                    }
-                    break;
-
-                case PaymentScheme.Chaps:
-                    if (account == null)
-                    {
-                        result.Success = false;
-                    }
-                    else if (!account.AllowedPaymentSchemes.HasFlag(AllowedPaymentSchemes.Chaps))
-                    {
-                        result.Success = false;
-                    }
-                    else if (account.Status != AccountStatus.Live)
-                    {
-                        result.Success = false;
-                    }
-                    break;
-            }
+                Success = validator != null && validator.IsValid(account, request)
+            };
 
             if (result.Success)
             {
                 account.Balance -= request.Amount;
+                _accountDataStore.UpdateAccount(account);
 
-                if (dataStoreType == "Backup")
-                {
-                    var accountDataStore = new BackupAccountDataStore();
-                    accountDataStore.UpdateAccount(account);
-                }
-                else
-                {
-                    var accountDataStore = new AccountDataStore();
-                    accountDataStore.UpdateAccount(account);
-                }
+                // TODO: Ensure creditor is credited after debtor is deducted.
+                // Both updates should be wrapped in a transaction to ensure consistency.
             }
 
             return result;

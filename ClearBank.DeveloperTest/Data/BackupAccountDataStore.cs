@@ -2,7 +2,11 @@
 
 namespace ClearBank.DeveloperTest.Data
 {
-    public class BackupAccountDataStore
+    /// <summary>
+    /// Reads and writes account data against the backup database.
+    /// Used as a fallback when the primary store is unavailable or when configured explicitly.
+    /// </summary>
+    public class BackupAccountDataStore : IAccountDataStore
     {
         public Account GetAccount(string accountNumber)
         {

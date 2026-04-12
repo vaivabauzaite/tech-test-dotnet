@@ -2,7 +2,10 @@
 
 namespace ClearBank.DeveloperTest.Data
 {
-    public class AccountDataStore
+    /// <summary>
+    /// Reads and writes account data against the primary database.
+    /// </summary>
+    public class AccountDataStore : IAccountDataStore
     {
         public Account GetAccount(string accountNumber)
         {
