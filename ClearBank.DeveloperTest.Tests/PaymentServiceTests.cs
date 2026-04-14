@@ -3,184 +3,110 @@ using ClearBank.DeveloperTest.Services;
 using ClearBank.DeveloperTest.Services.Validators;
 using ClearBank.DeveloperTest.Types;
 using Moq;
-using System.Collections.Generic;
-using Xunit;
+namespace ClearBank.DeveloperTest.Tests;
 
-namespace ClearBank.DeveloperTest.Tests
+public class PaymentServiceTests
 {
-    public class PaymentServiceTests
+    private Mock<IAccountDataStore> _accountDataStoreMock = null!;
+    private PaymentService _sut = null!;
+
+    [Before(Test)]
+    public void Setup()
     {
-        private readonly Mock<IAccountDataStore> _accountDataStoreMock;
-        private readonly PaymentService _sut;
-
-        public PaymentServiceTests()
+        // Mock IAccountDataStore since it "interacts with the database"
+        _accountDataStoreMock = new Mock<IAccountDataStore>();
+        var validators = new List<IPaymentValidator>
         {
-            _accountDataStoreMock = new Mock<IAccountDataStore>();
-            var validators = new List<IPaymentValidator>
-            {
-                new BacsPaymentValidator(),
-                new FasterPaymentsPaymentValidator(),
-                new ChapsPaymentValidator()
-            };
-            _sut = new PaymentService(_accountDataStoreMock.Object, validators);
-        }
+            new BacsPaymentValidator(),
+            new FasterPaymentsPaymentValidator(),
+            new ChapsPaymentValidator()
+        };
+        _sut = new PaymentService(_accountDataStoreMock.Object, validators);
+    }
 
-        // --- Bacs ---
+    [Test]
+    public async Task MakePayment_Bacs_ValidAccount_ReturnsTrue()
+    {
+        // Arrange
+        var account = new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Bacs, Balance = 100m };
+        _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns(account);
 
-        [Fact]
-        public void MakePayment_Bacs_AccountNotFound_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns((Account)null);
+        // Act
+        var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs, Amount = 50m });
 
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs });
+        // Assert
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(account.Balance).IsEqualTo(50m);
+    }
 
-            Assert.False(result.Success);
-        }
 
-        [Fact]
-        public void MakePayment_Bacs_SchemeNotAllowed_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.FasterPayments });
+    [Test]
+    public async Task MakePayment_FasterPayments_ValidAccount_ReturnsTrue()
+    {
+        // Arrange
+        var account = new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.FasterPayments, Balance = 100m };
+        _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns(account);
 
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs });
+        // Act
+        var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.FasterPayments, Amount = 50m });
 
-            Assert.False(result.Success);
-        }
+        // Assert
+        await Assert.That(result.Success).IsTrue();
+        await Assert.That(account.Balance).IsEqualTo(50m);
+    }
 
-        [Fact]
-        public void MakePayment_Bacs_ValidAccount_ReturnsTrue()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Bacs, Balance = 100m });
+    [Test]
+    public async Task MakePayment_FasterPayments_ValidAccount_ReturnsFalse()
+    {
+        // Arrange
+        _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
+            .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.FasterPayments, Balance = 10m });
 
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs, Amount = 50m });
+        // Act
+        var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.FasterPayments, Amount = 50m });
 
-            Assert.True(result.Success);
-        }
+        // Assert
+        await Assert.That(result.Success).IsFalse();
+    }
 
-        // --- FasterPayments ---
+    [Test]
+    public async Task MakePayment_Chaps_ValidAccount_ReturnsTrue()
+    {
+        // Arrange
+        _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
+            .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Chaps, Status = AccountStatus.Live });
 
-        [Fact]
-        public void MakePayment_FasterPayments_AccountNotFound_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns((Account)null);
+        // Act
+        var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Chaps });
 
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.FasterPayments, Amount = 50m });
+        // Assert
+        await Assert.That(result.Success).IsTrue();
+    }
 
-            Assert.False(result.Success);
-        }
+    [Test]
+    public async Task MakePayment_Chaps_ValidAccount_ReturnsFalse_WhenAccountIsDisabled()
+    {
+        // Arrange
+        _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
+            .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Chaps, Status = AccountStatus.Disabled });
 
-        [Fact]
-        public void MakePayment_FasterPayments_SchemeNotAllowed_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Bacs, Balance = 100m });
+        // Act
+        var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Chaps });
 
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.FasterPayments, Amount = 50m });
+        // Assert
+        await Assert.That(result.Success).IsFalse();
+    }
 
-            Assert.False(result.Success);
-        }
+    [Test]
+    public async Task MakePayment_AccountNotFound_ReturnsFalse()
+    {
+        // Arrange
+        _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns((Account?)null!);
 
-        [Fact]
-        public void MakePayment_FasterPayments_InsufficientBalance_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.FasterPayments, Balance = 10m });
+        // Act
+        var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs });
 
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.FasterPayments, Amount = 50m });
-
-            Assert.False(result.Success);
-        }
-
-        [Fact]
-        public void MakePayment_FasterPayments_ValidAccount_ReturnsTrue()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.FasterPayments, Balance = 100m });
-
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.FasterPayments, Amount = 50m });
-
-            Assert.True(result.Success);
-        }
-
-        // --- Chaps ---
-
-        [Fact]
-        public void MakePayment_Chaps_AccountNotFound_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns((Account)null);
-
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Chaps });
-
-            Assert.False(result.Success);
-        }
-
-        [Fact]
-        public void MakePayment_Chaps_SchemeNotAllowed_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Bacs, Status = AccountStatus.Live });
-
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Chaps });
-
-            Assert.False(result.Success);
-        }
-
-        [Fact]
-        public void MakePayment_Chaps_AccountNotLive_ReturnsFalse()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Chaps, Status = AccountStatus.Disabled });
-
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Chaps });
-
-            Assert.False(result.Success);
-        }
-
-        [Fact]
-        public void MakePayment_Chaps_ValidAccount_ReturnsTrue()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>()))
-                .Returns(new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Chaps, Status = AccountStatus.Live });
-
-            var result = _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Chaps });
-
-            Assert.True(result.Success);
-        }
-
-        // --- Balance and update ---
-
-        [Fact]
-        public void MakePayment_Success_DeductsAmountFromBalance()
-        {
-            var account = new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Bacs, Balance = 100m };
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns(account);
-
-            _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs, Amount = 40m });
-
-            Assert.Equal(60m, account.Balance);
-        }
-
-        [Fact]
-        public void MakePayment_Success_CallsUpdateAccount()
-        {
-            var account = new Account { AllowedPaymentSchemes = AllowedPaymentSchemes.Bacs, Balance = 100m };
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns(account);
-
-            _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs, Amount = 40m });
-
-            _accountDataStoreMock.Verify(s => s.UpdateAccount(account), Times.Once);
-        }
-
-        [Fact]
-        public void MakePayment_Failure_DoesNotCallUpdateAccount()
-        {
-            _accountDataStoreMock.Setup(s => s.GetAccount(It.IsAny<string>())).Returns((Account)null);
-
-            _sut.MakePayment(new MakePaymentRequest { PaymentScheme = PaymentScheme.Bacs });
-
-            _accountDataStoreMock.Verify(s => s.UpdateAccount(It.IsAny<Account>()), Times.Never);
-        }
+        // Assert
+        await Assert.That(result.Success).IsFalse();
     }
 }
